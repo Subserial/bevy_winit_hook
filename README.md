@@ -1,12 +1,11 @@
 # bevy_winit_hook
 
 Exposes hooks to update winit::window::WindowBuilder and the resulting winit::window::Window.  
-
 Also exposes a callback for change events.
 
-## This is a fork of [bevy_winit](https://github.com/bevyengine/bevy/tree/main/crates/bevy_winit)!
+This is a fork of [bevy_winit](https://github.com/bevyengine/bevy/tree/main/crates/bevy_winit).
 
-Almost everything in this repo is from bevy_winit v0.12.1 and not original. Git is confusing!
+Currently compatible with bevy v0.12.1.
 
 ## Example
 
