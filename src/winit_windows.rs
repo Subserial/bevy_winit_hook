@@ -18,6 +18,7 @@ use winit::{
 use crate::{
     accessibility::{AccessKitAdapters, WinitActionHandler, WinitActionHandlers},
     converters::{convert_enabled_buttons, convert_window_level, convert_window_theme},
+    winit_hook::WindowHook,
 };
 
 /// A resource mapping window entities to their `winit`-backend [`Window`](winit::window::Window)
@@ -38,11 +39,12 @@ pub struct WinitWindows {
 
 impl WinitWindows {
     /// Creates a `winit` window and associates it with our entity.
-    pub fn create_window(
+    pub fn create_window<T: WindowHook>(
         &mut self,
         event_loop: &winit::event_loop::EventLoopWindowTarget<()>,
         entity: Entity,
         window: &Window,
+        hook: Option<&T>,
         adapters: &mut AccessKitAdapters,
         handlers: &mut WinitActionHandlers,
         accessibility_requested: &AccessibilityRequested,
@@ -143,6 +145,10 @@ impl WinitWindows {
                 winit_window_builder.with_prevent_default(window.prevent_default_event_handling)
         }
 
+        if let Some(hook) = hook {
+            winit_window_builder = hook.builder_hook(&window, winit_window_builder);
+        }
+
         let winit_window = winit_window_builder.build(event_loop).unwrap();
         let name = window.title.clone();
 
@@ -184,6 +190,10 @@ impl WinitWindows {
                     window.title, err
                 );
             }
+        }
+
+        if let Some(hook) = hook {
+            hook.window_hook(window, &winit_window);
         }
 
         self.entity_to_winit.insert(entity, winit_window.id());

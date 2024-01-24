@@ -13,11 +13,13 @@ mod system;
 #[cfg(target_arch = "wasm32")]
 mod web_resize;
 mod winit_config;
+mod winit_hook;
 mod winit_windows;
 
 use bevy_a11y::AccessibilityRequested;
-use system::{changed_windows, create_windows, despawn_windows, CachedWindow};
+use system::{changed_hooks, changed_windows, create_windows, despawn_windows, CachedWindow};
 pub use winit_config::*;
+pub use winit_hook::*;
 pub use winit_windows::*;
 
 use bevy_app::{App, AppExit, Last, Plugin, PluginsState};
@@ -66,13 +68,13 @@ use crate::web_resize::{CanvasParentResizeEventChannel, CanvasParentResizePlugin
 pub static ANDROID_APP: std::sync::OnceLock<AndroidApp> = std::sync::OnceLock::new();
 
 /// A [`Plugin`] that uses `winit` to create and manage windows, and receive window and input
-/// events.
+/// events. Extra steps may be included with a struct implementing [`WindowBuilderHook`].
 ///
 /// This plugin will add systems and resources that sync with the `winit` backend and also
 /// replace the existing [`App`] runner with one that constructs an [event loop](EventLoop) to
 /// receive window and input events from the OS.
 #[derive(Default)]
-pub struct WinitPlugin {
+pub struct HookedWinitPlugin<T> {
     /// Allows the window (and the event loop) to be created on any thread
     /// instead of only the main thread.
     ///
@@ -83,9 +85,19 @@ pub struct WinitPlugin {
     /// Only works on Linux (X11/Wayland) and Windows.
     /// This field is ignored on other platforms.
     pub run_on_any_thread: bool,
+    /// A struct that implements a build hook. See [`WindowBuilderHook`].
+    pub window_hook: std::marker::PhantomData<T>,
 }
 
-impl Plugin for WinitPlugin {
+/// A [`Plugin`] that uses `winit` to create and manage windows, and receive window and input
+/// events.
+///
+/// This plugin will add systems and resources that sync with the `winit` backend and also
+/// replace the existing [`App`] runner with one that constructs an [event loop](EventLoop) to
+/// receive window and input events from the OS.
+pub type WinitPlugin = HookedWinitPlugin<NoHook>;
+
+impl<T: WindowHook> Plugin for HookedWinitPlugin<T> {
     fn build(&self, app: &mut App) {
         let mut event_loop_builder = EventLoopBuilder::<()>::with_user_event();
 
@@ -130,13 +142,14 @@ impl Plugin for WinitPlugin {
 
         app.init_non_send_resource::<WinitWindows>()
             .init_resource::<WinitSettings>()
-            .set_runner(winit_runner)
+            .set_runner(winit_runner::<T>)
             .add_systems(
                 Last,
                 (
                     // `exit_on_all_closed` only checks if windows exist but doesn't access data,
                     // so we don't need to care about its ordering relative to `changed_windows`
                     changed_windows.ambiguous_with(exit_on_all_closed),
+                    changed_hooks::<T>,
                     despawn_windows,
                 )
                     .chain(),
@@ -161,9 +174,9 @@ impl Plugin for WinitPlugin {
             // so that we have a surface to use as a hint. This improves compatibility with `wgpu`
             // backends, especially WASM/WebGL2.
             #[cfg(not(target_arch = "wasm32"))]
-            let mut create_window_system_state: SystemState<(
+                let mut create_window_system_state: SystemState<(
                 Commands,
-                Query<(Entity, &mut Window)>,
+                Query<(Entity, &mut Window, Option<&T>)>,
                 EventWriter<WindowCreated>,
                 NonSendMut<WinitWindows>,
                 NonSendMut<AccessKitAdapters>,
@@ -172,7 +185,7 @@ impl Plugin for WinitPlugin {
             )> = SystemState::from_world(&mut app.world);
 
             #[cfg(target_arch = "wasm32")]
-            let mut create_window_system_state: SystemState<(
+                let mut create_window_system_state: SystemState<(
                 Commands,
                 Query<(Entity, &mut Window)>,
                 EventWriter<WindowCreated>,
@@ -184,7 +197,7 @@ impl Plugin for WinitPlugin {
             )> = SystemState::from_world(&mut app.world);
 
             #[cfg(not(target_arch = "wasm32"))]
-            let (
+                let (
                 commands,
                 mut windows,
                 event_writer,
@@ -195,7 +208,7 @@ impl Plugin for WinitPlugin {
             ) = create_window_system_state.get_mut(&mut app.world);
 
             #[cfg(target_arch = "wasm32")]
-            let (
+                let (
                 commands,
                 mut windows,
                 event_writer,
@@ -216,7 +229,7 @@ impl Plugin for WinitPlugin {
                 handlers,
                 accessibility_requested,
                 #[cfg(target_arch = "wasm32")]
-                event_channel,
+                    event_channel,
             );
 
             create_window_system_state.apply(&mut app.world);
@@ -229,41 +242,41 @@ impl Plugin for WinitPlugin {
 }
 
 fn run<F, T>(event_loop: EventLoop<T>, event_handler: F) -> !
-where
-    F: 'static + FnMut(Event<'_, T>, &EventLoopWindowTarget<T>, &mut ControlFlow),
+    where
+        F: 'static + FnMut(Event<'_, T>, &EventLoopWindowTarget<T>, &mut ControlFlow),
 {
     event_loop.run(event_handler)
 }
 
 #[cfg(any(
-    target_os = "windows",
-    target_os = "macos",
-    target_os = "linux",
-    target_os = "dragonfly",
-    target_os = "freebsd",
-    target_os = "netbsd",
-    target_os = "openbsd"
+target_os = "windows",
+target_os = "macos",
+target_os = "linux",
+target_os = "dragonfly",
+target_os = "freebsd",
+target_os = "netbsd",
+target_os = "openbsd"
 ))]
 fn run_return<F, T>(event_loop: &mut EventLoop<T>, event_handler: F)
-where
-    F: FnMut(Event<'_, T>, &EventLoopWindowTarget<T>, &mut ControlFlow),
+    where
+        F: FnMut(Event<'_, T>, &EventLoopWindowTarget<T>, &mut ControlFlow),
 {
     use winit::platform::run_return::EventLoopExtRunReturn;
     event_loop.run_return(event_handler);
 }
 
 #[cfg(not(any(
-    target_os = "windows",
-    target_os = "macos",
-    target_os = "linux",
-    target_os = "dragonfly",
-    target_os = "freebsd",
-    target_os = "netbsd",
-    target_os = "openbsd"
+target_os = "windows",
+target_os = "macos",
+target_os = "linux",
+target_os = "dragonfly",
+target_os = "freebsd",
+target_os = "netbsd",
+target_os = "openbsd"
 )))]
 fn run_return<F, T>(_event_loop: &mut EventLoop<T>, _event_handler: F)
-where
-    F: FnMut(Event<'_, T>, &EventLoopWindowTarget<T>, &mut ControlFlow),
+    where
+        F: FnMut(Event<'_, T>, &EventLoopWindowTarget<T>, &mut ControlFlow),
 {
     panic!("Run return is not supported on this platform!")
 }
@@ -348,7 +361,7 @@ impl Default for WinitAppRunnerState {
 ///
 /// Overriding the app's [runner](bevy_app::App::runner) while using `WinitPlugin` will bypass the
 /// `EventLoop`.
-pub fn winit_runner(mut app: App) {
+pub fn winit_runner<T: WindowHook>(mut app: App) {
     if app.plugins_state() == PluginsState::Ready {
         app.finish();
         app.cleanup();
@@ -381,9 +394,9 @@ pub fn winit_runner(mut app: App) {
     )> = SystemState::new(&mut app.world);
 
     #[cfg(not(target_arch = "wasm32"))]
-    let mut create_window_system_state: SystemState<(
+        let mut create_window_system_state: SystemState<(
         Commands,
-        Query<(Entity, &mut Window), Added<Window>>,
+        Query<(Entity, &mut Window, Option<&T>), Added<Window>>,
         EventWriter<WindowCreated>,
         NonSendMut<WinitWindows>,
         NonSendMut<AccessKitAdapters>,
@@ -392,9 +405,9 @@ pub fn winit_runner(mut app: App) {
     )> = SystemState::from_world(&mut app.world);
 
     #[cfg(target_arch = "wasm32")]
-    let mut create_window_system_state: SystemState<(
+        let mut create_window_system_state: SystemState<(
         Commands,
-        Query<(Entity, &mut Window), Added<Window>>,
+        Query<(Entity, &mut Window, Option<&T>), Added<Window>>,
         EventWriter<WindowCreated>,
         NonSendMut<WinitWindows>,
         NonSendMut<AccessKitAdapters>,
@@ -408,7 +421,7 @@ pub fn winit_runner(mut app: App) {
                               event_loop: &EventLoopWindowTarget<()>,
                               control_flow: &mut ControlFlow| {
         #[cfg(feature = "trace")]
-        let _span = bevy_utils::tracing::info_span!("winit event_handler").entered();
+            let _span = bevy_utils::tracing::info_span!("winit event_handler").entered();
 
         if app.plugins_state() != PluginsState::Cleaned {
             if app.plugins_state() != PluginsState::Ready {
@@ -433,7 +446,7 @@ pub fn winit_runner(mut app: App) {
                     #[cfg(any(target_os = "ios", target_os = "macos"))]
                     {
                         #[cfg(not(target_arch = "wasm32"))]
-                        let (
+                            let (
                             commands,
                             mut windows,
                             event_writer,
@@ -444,7 +457,7 @@ pub fn winit_runner(mut app: App) {
                         ) = create_window_system_state.get_mut(&mut app.world);
 
                         #[cfg(target_arch = "wasm32")]
-                        let (
+                            let (
                             commands,
                             mut windows,
                             event_writer,
@@ -465,7 +478,7 @@ pub fn winit_runner(mut app: App) {
                             handlers,
                             accessibility_requested,
                             #[cfg(target_arch = "wasm32")]
-                            event_channel,
+                                event_channel,
                         );
 
                         create_window_system_state.apply(&mut app.world);
@@ -871,7 +884,7 @@ pub fn winit_runner(mut app: App) {
                     // create any new windows
                     // (even if app did not update, some may have been created by plugin setup)
                     #[cfg(not(target_arch = "wasm32"))]
-                    let (
+                        let (
                         commands,
                         mut windows,
                         event_writer,
@@ -882,7 +895,7 @@ pub fn winit_runner(mut app: App) {
                     ) = create_window_system_state.get_mut(&mut app.world);
 
                     #[cfg(target_arch = "wasm32")]
-                    let (
+                        let (
                         commands,
                         mut windows,
                         event_writer,
@@ -903,7 +916,7 @@ pub fn winit_runner(mut app: App) {
                         handlers,
                         accessibility_requested,
                         #[cfg(target_arch = "wasm32")]
-                        event_channel,
+                            event_channel,
                     );
 
                     create_window_system_state.apply(&mut app.world);
