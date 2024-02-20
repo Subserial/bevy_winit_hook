@@ -5,7 +5,8 @@ Also exposes a callback for change events.
 
 This is a fork of [bevy_winit](https://github.com/bevyengine/bevy/tree/main/crates/bevy_winit).
 
-Currently compatible with bevy v0.12.1.
+The current HEAD is compatible with bevy v0.13.0.  
+There are compatibility branches for: v0.12.1, v0.13.0.
 
 ## Example
 
