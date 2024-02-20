@@ -1,6 +1,6 @@
 [package]
 name = "bevy_winit_hook"
-version = "0.12.1"
+version = "0.13.0"
 edition = "2021"
 description = "bevy_winit with an exposed window builder hook"
 homepage = "https://bevyengine.org"
@@ -16,26 +16,30 @@ accesskit_unix = ["accesskit_winit/accesskit_unix", "accesskit_winit/async-io"]
 
 [dependencies]
 # bevy
-bevy_a11y = { version = "0.12.1" }
-bevy_app = { version = "0.12.1" }
-bevy_derive = { version = "0.12.1" }
-bevy_ecs = { version = "0.12.1" }
-bevy_hierarchy = { version = "0.12.1" }
-bevy_input = { version = "0.12.1" }
-bevy_math = { version = "0.12.1" }
-bevy_window = { version = "0.12.1" }
-bevy_utils = { version = "0.12.1" }
-bevy_tasks = { version = "0.12.1" }
+bevy_a11y = { version = "0.13.0" }
+bevy_app = { version = "0.13.0" }
+bevy_derive = { version = "0.13.0" }
+bevy_ecs = { version = "0.13.0" }
+bevy_hierarchy = { version = "0.13.0" }
+bevy_input = { version = "0.13.0" }
+bevy_math = { version = "0.13.0" }
+bevy_window = { version = "0.13.0" }
+bevy_utils = { version = "0.13.0" }
+bevy_tasks = { version = "0.13.0" }
 
 # other
-winit = { version = "0.28.7", default-features = false }
-accesskit_winit = { version = "0.15", default-features = false }
+# feature rwh_06 refers to window_raw_handle@v0.6
+winit = { version = "0.29", default-features = false, features = ["rwh_06"] }
+accesskit_winit = { version = "0.17", default-features = false, features = [
+  "rwh_06",
+] }
 approx = { version = "0.5", default-features = false }
-raw-window-handle = "0.5"
+raw-window-handle = "0.6"
 
 [target.'cfg(target_os = "android")'.dependencies]
-winit = { version = "0.28.7", default-features = false, features = [
-    "android-native-activity",
+winit = { version = "0.29", default-features = false, features = [
+  "android-native-activity",
+  "rwh_06",
 ] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
